@@ -1,11 +1,15 @@
 import torch
 from mobile_encoder.tiny_vit_sam import TinyViT
-from segment_anything.modeling import ImageEncoderViT, MaskDecoder, PromptEncoder, Sam, TwoWayTransformer
+from segment_anything.modeling import MaskDecoder, PromptEncoder, Sam, TwoWayTransformer
+import pdb
+
+
 def setup_model():
     prompt_embed_dim = 256
     image_size = 1024
     vit_patch_size = 16
-    image_embedding_size = image_size // vit_patch_size
+    image_embedding_size = image_size // vit_patch_size # 64
+
     mobile_sam = Sam(
             image_encoder=TinyViT(img_size=1024, in_chans=3, num_classes=1000,
                 embed_dims=[64, 128, 160, 320],
@@ -28,12 +32,7 @@ def setup_model():
             ),
             mask_decoder=MaskDecoder(
                     num_multimask_outputs=3,
-                    transformer=TwoWayTransformer(
-                    depth=2,
-                    embedding_dim=prompt_embed_dim,
-                    mlp_dim=2048,
-                    num_heads=8,
-                ),
+                transformer=TwoWayTransformer(depth=2, embedding_dim=prompt_embed_dim, mlp_dim=2048, num_heads=8),
                 transformer_dim=prompt_embed_dim,
                 iou_head_depth=3,
                 iou_head_hidden_dim=256,

@@ -17,6 +17,7 @@ from timm.models.layers import DropPath as TimmDropPath,\
 from timm.models.registry import register_model
 from typing import Tuple
 
+import pdb
 
 class Conv2d_BN(torch.nn.Sequential):
     def __init__(self, a, b, ks=1, stride=1, pad=0, dilation=1,
@@ -31,11 +32,12 @@ class Conv2d_BN(torch.nn.Sequential):
 
     @torch.no_grad()
     def fuse(self):
+        pdb.set_trace()
+
         c, bn = self._modules.values()
         w = bn.weight / (bn.running_var + bn.eps)**0.5
         w = c.weight * w[:, None, None, None]
-        b = bn.bias - bn.running_mean * bn.weight / \
-            (bn.running_var + bn.eps)**0.5
+        b = bn.bias - bn.running_mean * bn.weight / (bn.running_var + bn.eps)**0.5
         m = torch.nn.Conv2d(w.size(1) * self.c.groups, w.size(
             0), w.shape[2:], stride=self.c.stride, padding=self.c.padding, dilation=self.c.dilation, groups=self.c.groups)
         m.weight.data.copy_(w)
@@ -57,17 +59,16 @@ class DropPath(TimmDropPath):
 class PatchEmbed(nn.Module):
     def __init__(self, in_chans, embed_dim, resolution, activation):
         super().__init__()
-        img_size: Tuple[int, int] = to_2tuple(resolution)
+        img_size: Tuple[int, int] = (resolution, resolution)
         self.patches_resolution = (img_size[0] // 4, img_size[1] // 4)
         self.num_patches = self.patches_resolution[0] * \
             self.patches_resolution[1]
         self.in_chans = in_chans
         self.embed_dim = embed_dim
-        n = embed_dim
         self.seq = nn.Sequential(
-            Conv2d_BN(in_chans, n // 2, 3, 2, 1),
+            Conv2d_BN(in_chans, embed_dim // 2, 3, 2, 1),
             activation(),
-            Conv2d_BN(n // 2, n, 3, 2, 1),
+            Conv2d_BN(embed_dim // 2, embed_dim, 3, 2, 1),
         )
 
     def forward(self, x):
@@ -75,8 +76,7 @@ class PatchEmbed(nn.Module):
 
 
 class MBConv(nn.Module):
-    def __init__(self, in_chans, out_chans, expand_ratio,
-                 activation, drop_path):
+    def __init__(self, in_chans, out_chans, expand_ratio, activation, drop_path):
         super().__init__()
         self.in_chans = in_chans
         self.hidden_chans = int(in_chans * expand_ratio)
@@ -85,12 +85,10 @@ class MBConv(nn.Module):
         self.conv1 = Conv2d_BN(in_chans, self.hidden_chans, ks=1)
         self.act1 = activation()
 
-        self.conv2 = Conv2d_BN(self.hidden_chans, self.hidden_chans,
-                               ks=3, stride=1, pad=1, groups=self.hidden_chans)
+        self.conv2 = Conv2d_BN(self.hidden_chans, self.hidden_chans, ks=3, stride=1, pad=1, groups=self.hidden_chans)
         self.act2 = activation()
 
-        self.conv3 = Conv2d_BN(
-            self.hidden_chans, out_chans, ks=1, bn_weight_init=0.0)
+        self.conv3 = Conv2d_BN(self.hidden_chans, out_chans, ks=1, bn_weight_init=0.0)
         self.act3 = activation()
 
         self.drop_path = DropPath(
@@ -162,11 +160,7 @@ class ConvLayer(nn.Module):
         self.use_checkpoint = use_checkpoint
 
         # build blocks
-        self.blocks = nn.ModuleList([
-            MBConv(dim, dim, conv_expand_ratio, activation,
-                   drop_path[i] if isinstance(drop_path, list) else drop_path,
-                   )
-            for i in range(depth)])
+        self.blocks = nn.ModuleList([MBConv(dim, dim, conv_expand_ratio, activation, drop_path[i]) for i in range(depth)])
 
         # patch merging layer
         if downsample is not None:
@@ -174,6 +168,14 @@ class ConvLayer(nn.Module):
                 input_resolution, dim=dim, out_dim=out_dim, activation=activation)
         else:
             self.downsample = None
+        # dim = 64
+        # input_resolution = (256, 256)
+        # depth = 2
+        # activation = <class 'torch.nn.modules.activation.GELU'>
+        # drop_path = [0.0, 0.0]
+        # downsample = <class 'mobile_encoder.tiny_vit_sam.PatchMerging'>
+        # out_dim = 128
+        # conv_expand_ratio = 4.0
 
     def forward(self, x):
         for blk in self.blocks:
@@ -187,8 +189,7 @@ class ConvLayer(nn.Module):
 
 
 class Mlp(nn.Module):
-    def __init__(self, in_features, hidden_features=None,
-                 out_features=None, act_layer=nn.GELU, drop=0.):
+    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
@@ -230,8 +231,7 @@ class Attention(torch.nn.Module):
         self.qkv = nn.Linear(dim, h)
         self.proj = nn.Linear(self.dh, dim)
 
-        points = list(itertools.product(
-            range(resolution[0]), range(resolution[1])))
+        points = list(itertools.product(range(resolution[0]), range(resolution[1])))
         N = len(points)
         attention_offsets = {}
         idxs = []
@@ -241,11 +241,8 @@ class Attention(torch.nn.Module):
                 if offset not in attention_offsets:
                     attention_offsets[offset] = len(attention_offsets)
                 idxs.append(attention_offsets[offset])
-        self.attention_biases = torch.nn.Parameter(
-            torch.zeros(num_heads, len(attention_offsets)))
-        self.register_buffer('attention_bias_idxs',
-                             torch.LongTensor(idxs).view(N, N),
-                             persistent=False)
+        self.attention_biases = torch.nn.Parameter(torch.zeros(num_heads, len(attention_offsets)))
+        self.register_buffer('attention_bias_idxs', torch.LongTensor(idxs).view(N, N), persistent=False)
 
     @torch.no_grad()
     def train(self, mode=True):
@@ -293,8 +290,7 @@ class TinyViTBlock(nn.Module):
         mlp_ratio (float): Ratio of mlp hidden dim to embedding dim.
         drop (float, optional): Dropout rate. Default: 0.0
         drop_path (float, optional): Stochastic depth rate. Default: 0.0
-        local_conv_size (int): the kernel size of the convolution between
-                               Attention and MLP. Default: 3
+        local_conv_size (int): the kernel size of the convolution between Attention and MLP. Default: 3
         activation: the activation function. Default: nn.GELU
     """
 
@@ -311,38 +307,33 @@ class TinyViTBlock(nn.Module):
         self.window_size = window_size
         self.mlp_ratio = mlp_ratio
 
-        self.drop_path = DropPath(
-            drop_path) if drop_path > 0. else nn.Identity()
+        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
 
         assert dim % num_heads == 0, 'dim must be divisible by num_heads'
         head_dim = dim // num_heads
 
         window_resolution = (window_size, window_size)
-        self.attn = Attention(dim, head_dim, num_heads,
-                              attn_ratio=1, resolution=window_resolution)
+        self.attn = Attention(dim, head_dim, num_heads, attn_ratio=1, resolution=window_resolution)
 
         mlp_hidden_dim = int(dim * mlp_ratio)
         mlp_activation = activation
-        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim,
-                       act_layer=mlp_activation, drop=drop)
+        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=mlp_activation, drop=drop)
 
         pad = local_conv_size // 2
-        self.local_conv = Conv2d_BN(
-            dim, dim, ks=local_conv_size, stride=1, pad=pad, groups=dim)
+        self.local_conv = Conv2d_BN(dim, dim, ks=local_conv_size, stride=1, pad=pad, groups=dim)
 
     def forward(self, x):
-        H, W = self.input_resolution
-        B, L, C = x.shape
+        H, W = self.input_resolution # self.input_resolution -- (128, 128)
+        B, L, C = x.shape # x.shape -- torch.Size([1, 16384, 128])
         assert L == H * W, "input feature has wrong size"
+
         res_x = x
-        if H == self.window_size and W == self.window_size:
+        if H == self.window_size and W == self.window_size: # self.window_size -- 7
             x = self.attn(x)
         else:
             x = x.view(B, H, W, C)
-            pad_b = (self.window_size - H %
-                     self.window_size) % self.window_size
-            pad_r = (self.window_size - W %
-                     self.window_size) % self.window_size
+            pad_b = (self.window_size - H % self.window_size) % self.window_size
+            pad_r = (self.window_size - W % self.window_size) % self.window_size
             padding = pad_b > 0 or pad_r > 0
 
             if padding:
@@ -356,8 +347,7 @@ class TinyViTBlock(nn.Module):
                 B * nH * nW, self.window_size * self.window_size, C)
             x = self.attn(x)
             # window reverse
-            x = x.view(B, nH, nW, self.window_size, self.window_size,
-                       C).transpose(2, 3).reshape(B, pH, pW, C)
+            x = x.view(B, nH, nW, self.window_size, self.window_size, C).transpose(2, 3).reshape(B, pH, pW, C)
 
             if padding:
                 x = x[:, :H, :W].contiguous()
@@ -371,6 +361,9 @@ class TinyViTBlock(nn.Module):
         x = x.view(B, C, L).transpose(1, 2)
 
         x = x + self.drop_path(self.mlp(x))
+
+        # x.size() -- [1, 16384, 128]
+
         return x
 
     def extra_repr(self) -> str:
@@ -402,10 +395,19 @@ class BasicLayer(nn.Module):
                  drop_path=0., downsample=None, use_checkpoint=False,
                  local_conv_size=3,
                  activation=nn.GELU,
-                 out_dim=None,
+                 out_dim=160,
                  ):
 
         super().__init__()
+        # dim = 128
+        # input_resolution = (128, 128)
+        # depth = 2
+        # num_heads = 4
+        # window_size = 7
+        # drop_path = [0.0, 0.0]
+        # downsample = <class 'mobile_encoder.tiny_vit_sam.PatchMerging'>
+        # out_dim = 160
+
         self.dim = dim
         self.input_resolution = input_resolution
         self.depth = depth
@@ -417,8 +419,7 @@ class BasicLayer(nn.Module):
                          num_heads=num_heads, window_size=window_size,
                          mlp_ratio=mlp_ratio,
                          drop=drop,
-                         drop_path=drop_path[i] if isinstance(
-                             drop_path, list) else drop_path,
+                         drop_path=drop_path[i] if isinstance(drop_path, list) else drop_path,
                          local_conv_size=local_conv_size,
                          activation=activation,
                          )
@@ -426,8 +427,7 @@ class BasicLayer(nn.Module):
 
         # patch merging layer
         if downsample is not None:
-            self.downsample = downsample(
-                input_resolution, dim=dim, out_dim=out_dim, activation=activation)
+            self.downsample = downsample(input_resolution, dim=dim, out_dim=out_dim, activation=activation)
         else:
             self.downsample = None
 
@@ -439,6 +439,7 @@ class BasicLayer(nn.Module):
                 x = blk(x)
         if self.downsample is not None:
             x = self.downsample(x)
+
         return x
 
     def extra_repr(self) -> str:
@@ -451,12 +452,14 @@ class LayerNorm2d(nn.Module):
         self.bias = nn.Parameter(torch.zeros(num_channels))
         self.eps = eps
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x):
         u = x.mean(1, keepdim=True)
         s = (x - u).pow(2).mean(1, keepdim=True)
         x = (x - u) / torch.sqrt(s + self.eps)
         x = self.weight[:, None, None] * x + self.bias[:, None, None]
         return x
+
+
 class TinyViT(nn.Module):
     def __init__(self, img_size=224, in_chans=3, num_classes=1000,
                  embed_dims=[96, 192, 384, 768], depths=[2, 2, 6, 2],
@@ -471,6 +474,10 @@ class TinyViT(nn.Module):
                  layer_lr_decay=1.0,
                  ):
         super().__init__()
+        # img_size = 1024
+        # embed_dims = [64, 128, 160, 320]
+        # num_heads = [2, 4, 5, 10]
+
         self.img_size=img_size
         self.num_classes = num_classes
         self.depths = depths
@@ -478,18 +485,13 @@ class TinyViT(nn.Module):
         self.mlp_ratio = mlp_ratio
 
         activation = nn.GELU
-
-        self.patch_embed = PatchEmbed(in_chans=in_chans,
-                                      embed_dim=embed_dims[0],
-                                      resolution=img_size,
-                                      activation=activation)
+        self.patch_embed = PatchEmbed(in_chans=in_chans, embed_dim=embed_dims[0], resolution=img_size, activation=activation)
 
         patches_resolution = self.patch_embed.patches_resolution
         self.patches_resolution = patches_resolution
 
         # stochastic depth
-        dpr = [x.item() for x in torch.linspace(0, drop_path_rate,
-                                                sum(depths))]  # stochastic depth decay rule
+        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
 
         # build layers
         self.layers = nn.ModuleList()
@@ -497,22 +499,14 @@ class TinyViT(nn.Module):
             kwargs = dict(dim=embed_dims[i_layer],
                         input_resolution=(patches_resolution[0] // (2 ** (i_layer-1 if i_layer == 3 else i_layer)),
                                 patches_resolution[1] // (2 ** (i_layer-1 if i_layer == 3 else i_layer))),
-                        #   input_resolution=(patches_resolution[0] // (2 ** i_layer),
-                        #                     patches_resolution[1] // (2 ** i_layer)),
                           depth=depths[i_layer],
                           drop_path=dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])],
-                          downsample=PatchMerging if (
-                              i_layer < self.num_layers - 1) else None,
-                          use_checkpoint=use_checkpoint,
-                          out_dim=embed_dims[min(
-                              i_layer + 1, len(embed_dims) - 1)],
+                          downsample=PatchMerging if (i_layer < self.num_layers - 1) else None,
+                        out_dim=embed_dims[min(i_layer + 1, len(embed_dims) - 1)],
                           activation=activation,
                           )
             if i_layer == 0:
-                layer = ConvLayer(
-                    conv_expand_ratio=mbconv_expand_ratio,
-                    **kwargs,
-                )
+                layer = ConvLayer(conv_expand_ratio=mbconv_expand_ratio, **kwargs)
             else:
                 layer = BasicLayer(
                     num_heads=num_heads[i_layer],
@@ -548,13 +542,14 @@ class TinyViT(nn.Module):
             ),
             LayerNorm2d(256),
         )
+
     def set_layer_lr_decay(self, layer_lr_decay):
         decay_rate = layer_lr_decay
 
         # layers -> blocks (depth)
         depth = sum(self.depths)
         lr_scales = [decay_rate ** (depth - i - 1) for i in range(depth)]
-        print("LR SCALES:", lr_scales)
+        # print("LR SCALES:", lr_scales)
 
         def _set_lr_scale(m, scale):
             for p in m.parameters():
@@ -605,27 +600,30 @@ class TinyViT(nn.Module):
         for i in range(start_i, len(self.layers)):
             layer = self.layers[i]
             x = layer(x)
-        B,_,C=x.size()
+        # for i, m in enumerate(self.layers):
+        #     x = m(x)
+
+        B, _, C = x.size()
         x = x.view(B, 64, 64, C)
         x=x.permute(0, 3, 1, 2)
         x=self.neck(x)
         return x
 
     def forward(self, x):
+        # x.size() -- [1, 3, 1024, 1024], x normalized, float32
         x = self.forward_features(x)
-        #x = self.norm_head(x)
-        #x = self.head(x)
+        # x.size() -- [1, 256, 64, 64]
         return x
 
 
 _checkpoint_url_format = \
     'https://github.com/wkcn/TinyViT-model-zoo/releases/download/checkpoints/{}.pth'
 _provided_checkpoints = {
-    'tiny_vit_5m_224': 'tiny_vit_5m_22kto1k_distill',
-    'tiny_vit_11m_224': 'tiny_vit_11m_22kto1k_distill',
-    'tiny_vit_21m_224': 'tiny_vit_21m_22kto1k_distill',
-    'tiny_vit_21m_384': 'tiny_vit_21m_22kto1k_384_distill',
-    'tiny_vit_21m_512': 'tiny_vit_21m_22kto1k_512_distill',
+    'tiny_vit_5m_224': 'tiny_vit_5m_22kto1k_distill', # True ?
+    # 'tiny_vit_11m_224': 'tiny_vit_11m_22kto1k_distill',
+    # 'tiny_vit_21m_224': 'tiny_vit_21m_22kto1k_distill',
+    # 'tiny_vit_21m_384': 'tiny_vit_21m_22kto1k_384_distill',
+    # 'tiny_vit_21m_512': 'tiny_vit_21m_22kto1k_512_distill',
 }
 
 
@@ -633,8 +631,9 @@ def register_tiny_vit_model(fn):
     '''Register a TinyViT model
     It is a wrapper of `register_model` with loading the pretrained checkpoint.
     '''
+    #  pp fn -- <function tiny_vit_5m_224>
     def fn_wrapper(pretrained=False, **kwargs):
-        model = fn()
+        model = fn() # model -- TinyViT()
         if pretrained:
             model_name = fn.__name__
             assert model_name in _provided_checkpoints, \
@@ -656,6 +655,8 @@ def register_tiny_vit_model(fn):
 
 @register_tiny_vit_model
 def tiny_vit_5m_224(pretrained=False, num_classes=1000, drop_path_rate=0.0):
+    pdb.set_trace()
+
     return TinyViT(
         num_classes=num_classes,
         embed_dims=[64, 128, 160, 320],
@@ -666,51 +667,55 @@ def tiny_vit_5m_224(pretrained=False, num_classes=1000, drop_path_rate=0.0):
     )
 
 
-@register_tiny_vit_model
-def tiny_vit_11m_224(pretrained=False, num_classes=1000, drop_path_rate=0.1):
-    return TinyViT(
-        num_classes=num_classes,
-        embed_dims=[64, 128, 256, 448],
-        depths=[2, 2, 6, 2],
-        num_heads=[2, 4, 8, 14],
-        window_sizes=[7, 7, 14, 7],
-        drop_path_rate=drop_path_rate,
-    )
+# @register_tiny_vit_model
+# def tiny_vit_11m_224(pretrained=False, num_classes=1000, drop_path_rate=0.1):
+#     pdb.set_trace()
+
+#     return TinyViT(
+#         num_classes=num_classes,
+#         embed_dims=[64, 128, 256, 448],
+#         depths=[2, 2, 6, 2],
+#         num_heads=[2, 4, 8, 14],
+#         window_sizes=[7, 7, 14, 7],
+#         drop_path_rate=drop_path_rate,
+#     )
 
 
-@register_tiny_vit_model
-def tiny_vit_21m_224(pretrained=False, num_classes=1000, drop_path_rate=0.2):
-    return TinyViT(
-        num_classes=num_classes,
-        embed_dims=[96, 192, 384, 576],
-        depths=[2, 2, 6, 2],
-        num_heads=[3, 6, 12, 18],
-        window_sizes=[7, 7, 14, 7],
-        drop_path_rate=drop_path_rate,
-    )
+# @register_tiny_vit_model
+# def tiny_vit_21m_224(pretrained=False, num_classes=1000, drop_path_rate=0.2):
+#     pdb.set_trace()
+
+#     return TinyViT(
+#         num_classes=num_classes,
+#         embed_dims=[96, 192, 384, 576],
+#         depths=[2, 2, 6, 2],
+#         num_heads=[3, 6, 12, 18],
+#         window_sizes=[7, 7, 14, 7],
+#         drop_path_rate=drop_path_rate,
+#     )
 
 
-@register_tiny_vit_model
-def tiny_vit_21m_384(pretrained=False, num_classes=1000, drop_path_rate=0.1):
-    return TinyViT(
-        img_size=384,
-        num_classes=num_classes,
-        embed_dims=[96, 192, 384, 576],
-        depths=[2, 2, 6, 2],
-        num_heads=[3, 6, 12, 18],
-        window_sizes=[12, 12, 24, 12],
-        drop_path_rate=drop_path_rate,
-    )
+# @register_tiny_vit_model
+# def tiny_vit_21m_384(pretrained=False, num_classes=1000, drop_path_rate=0.1):
+#     return TinyViT(
+#         img_size=384,
+#         num_classes=num_classes,
+#         embed_dims=[96, 192, 384, 576],
+#         depths=[2, 2, 6, 2],
+#         num_heads=[3, 6, 12, 18],
+#         window_sizes=[12, 12, 24, 12],
+#         drop_path_rate=drop_path_rate,
+#     )
 
 
-@register_tiny_vit_model
-def tiny_vit_21m_512(pretrained=False, num_classes=1000, drop_path_rate=0.1):
-    return TinyViT(
-        img_size=512,
-        num_classes=num_classes,
-        embed_dims=[96, 192, 384, 576],
-        depths=[2, 2, 6, 2],
-        num_heads=[3, 6, 12, 18],
-        window_sizes=[16, 16, 32, 16],
-        drop_path_rate=drop_path_rate,
-    )
+# @register_tiny_vit_model
+# def tiny_vit_21m_512(pretrained=False, num_classes=1000, drop_path_rate=0.1):
+#     return TinyViT(
+#         img_size=512,
+#         num_classes=num_classes,
+#         embed_dims=[96, 192, 384, 576],
+#         depths=[2, 2, 6, 2],
+#         num_heads=[3, 6, 12, 18],
+#         window_sizes=[16, 16, 32, 16],
+#         drop_path_rate=drop_path_rate,
+#     )

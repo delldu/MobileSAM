@@ -11,7 +11,9 @@ import math
 from copy import deepcopy
 from itertools import product
 from typing import Any, Dict, Generator, ItemsView, List, Tuple
+from .debug import debug_var
 
+import pdb
 
 class MaskData:
     """
@@ -27,9 +29,7 @@ class MaskData:
         self._stats = dict(**kwargs)
 
     def __setitem__(self, key: str, item: Any) -> None:
-        assert isinstance(
-            item, (list, np.ndarray, torch.Tensor)
-        ), "MaskData only supports list, numpy arrays, and torch tensors."
+        assert isinstance(item, (list, np.ndarray, torch.Tensor)), "MaskData only supports list, numpy arrays, and torch tensors."
         self._stats[key] = item
 
     def __delitem__(self, key: str) -> None:
@@ -74,10 +74,23 @@ class MaskData:
             if isinstance(v, torch.Tensor):
                 self._stats[k] = v.detach().cpu().numpy()
 
+    def __repr__(self):
+        ret = []
+        for k, v in self._stats.items():
+            if isinstance(v, torch.Tensor):
+                ret.append(f"tensor [{k}] size: {list(v.size())}")
+            elif isinstance(v, np.ndarray):
+                ret.append(f"array [{k}] shape: {list(v.shape)}")
+            elif isinstance(v, list):
+                ret.append(f"list [{k}] length: {len(v)}")
+            elif isinstance(v, tuple):
+                ret.append(f"tuple [{k}] length: {len(v)}")
+            else:
+                ret.append(f"[{k}] value: {v}")
+        return "\n".join(ret)
 
-def is_box_near_crop_edge(
-    boxes: torch.Tensor, crop_box: List[int], orig_box: List[int], atol: float = 20.0
-) -> torch.Tensor:
+
+def is_box_near_crop_edge(boxes: torch.Tensor, crop_box: List[int], orig_box: List[int], atol: float = 20.0) -> torch.Tensor:
     """Filter masks at the edge of a crop, but not at the edge of the original image."""
     crop_box_torch = torch.as_tensor(crop_box, dtype=torch.float, device=boxes.device)
     orig_box_torch = torch.as_tensor(orig_box, dtype=torch.float, device=boxes.device)
@@ -96,9 +109,7 @@ def box_xyxy_to_xywh(box_xyxy: torch.Tensor) -> torch.Tensor:
 
 
 def batch_iterator(batch_size: int, *args) -> Generator[List[Any], None, None]:
-    assert len(args) > 0 and all(
-        len(a) == len(args[0]) for a in args
-    ), "Batched iteration must have inputs of all the same size."
+    assert len(args) > 0 and all(len(a) == len(args[0]) for a in args), "Batched iteration must have inputs of all the same size."
     n_batches = len(args[0]) // batch_size + int(len(args[0]) % batch_size != 0)
     for b in range(n_batches):
         yield [arg[b * batch_size : (b + 1) * batch_size] for arg in args]
@@ -161,6 +172,7 @@ def calculate_stability_score(
     score is the IoU between the binary masks obtained by thresholding
     the predicted mask logits at high and low values.
     """
+
     # One mask is always contained inside the other.
     # Save memory by preventing unnecessary cast to torch.int64
     intersections = (
@@ -186,20 +198,26 @@ def build_point_grid(n_per_side: int) -> np.ndarray:
     return points
 
 
-def build_all_layer_point_grids(
-    n_per_side: int, n_layers: int, scale_per_layer: int
-) -> List[np.ndarray]:
+def build_all_layer_point_grids(n_per_side: int, n_layers: int, scale_per_layer: int ) -> List[np.ndarray]:
     """Generates point grids for all crop layers."""
+    # n_per_side = 32
+    # n_layers = 1
+    # scale_per_layer = 2
+
     points_by_layer = []
     for i in range(n_layers + 1):
-        n_points = int(n_per_side / (scale_per_layer**i))
+        n_points = int(n_per_side / (scale_per_layer**i)) # ==> 32, 16
         points_by_layer.append(build_point_grid(n_points))
+
+    # debug_var("points_by_layer", points_by_layer)
+    # list [points_by_layer] len: 2
+    # (Pdb) points_by_layer[0].shape -- (1024, 2), 32x32 potnts
+    # (Pdb) points_by_layer[1].shape -- (256, 2), 16x16 points
+
     return points_by_layer
 
 
-def generate_crop_boxes(
-    im_size: Tuple[int, ...], n_layers: int, overlap_ratio: float
-) -> Tuple[List[List[int]], List[int]]:
+def generate_crop_boxes(im_size: Tuple[int, ...], n_layers: int, overlap_ratio: float) -> Tuple[List[List[int]], List[int]]:
     """
     Generates a list of crop boxes of different sizes. Each layer
     has (2**i)**2 boxes for the ith layer.

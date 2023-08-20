@@ -53,6 +53,8 @@ class ImageEncoderViT(nn.Module):
             global_attn_indexes (list): Indexes for blocks using global attention.
         """
         super().__init__()
+        # pdb.set_trace()
+
         self.img_size = img_size
 
         self.patch_embed = PatchEmbed(
@@ -103,7 +105,7 @@ class ImageEncoderViT(nn.Module):
             LayerNorm2d(out_chans),
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x):
         x = self.patch_embed(x)
         if self.pos_embed is not None:
             x = x + self.pos_embed
@@ -163,7 +165,7 @@ class Block(nn.Module):
 
         self.window_size = window_size
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x):
         shortcut = x
         x = self.norm1(x)
         # Window partition
@@ -221,7 +223,7 @@ class Attention(nn.Module):
             self.rel_pos_h = nn.Parameter(torch.zeros(2 * input_size[0] - 1, head_dim))
             self.rel_pos_w = nn.Parameter(torch.zeros(2 * input_size[1] - 1, head_dim))
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x):
         B, H, W, _ = x.shape
         # qkv with shape (3, B, nHead, H * W, C)
         qkv = self.qkv(x).reshape(B, H * W, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
@@ -240,7 +242,7 @@ class Attention(nn.Module):
         return x
 
 
-def window_partition(x: torch.Tensor, window_size: int) -> Tuple[torch.Tensor, Tuple[int, int]]:
+def window_partition(x, window_size: int) -> Tuple[torch.Tensor, Tuple[int, int]]:
     """
     Partition into non-overlapping windows with padding if needed.
     Args:
@@ -264,9 +266,7 @@ def window_partition(x: torch.Tensor, window_size: int) -> Tuple[torch.Tensor, T
     return windows, (Hp, Wp)
 
 
-def window_unpartition(
-    windows: torch.Tensor, window_size: int, pad_hw: Tuple[int, int], hw: Tuple[int, int]
-) -> torch.Tensor:
+def window_unpartition(windows, window_size: int, pad_hw: Tuple[int, int], hw: Tuple[int, int]):
     """
     Window unpartition into original sequences and removing padding.
     Args:
@@ -289,7 +289,7 @@ def window_unpartition(
     return x
 
 
-def get_rel_pos(q_size: int, k_size: int, rel_pos: torch.Tensor) -> torch.Tensor:
+def get_rel_pos(q_size: int, k_size: int, rel_pos):
     """
     Get relative positional embeddings according to the relative positions of
         query and key sizes.
@@ -322,14 +322,7 @@ def get_rel_pos(q_size: int, k_size: int, rel_pos: torch.Tensor) -> torch.Tensor
     return rel_pos_resized[relative_coords.long()]
 
 
-def add_decomposed_rel_pos(
-    attn: torch.Tensor,
-    q: torch.Tensor,
-    rel_pos_h: torch.Tensor,
-    rel_pos_w: torch.Tensor,
-    q_size: Tuple[int, int],
-    k_size: Tuple[int, int],
-) -> torch.Tensor:
+def add_decomposed_rel_pos(attn, q, rel_pos_h, rel_pos_w, q_size: Tuple[int, int], k_size: Tuple[int, int]):
     """
     Calculate decomposed Relative Positional Embeddings from :paper:`mvitv2`.
     https://github.com/facebookresearch/mvit/blob/19786631e330df9f3622e5402b4a419a263a2c80/mvit/models/attention.py   # noqa B950
@@ -388,7 +381,7 @@ class PatchEmbed(nn.Module):
             in_chans, embed_dim, kernel_size=kernel_size, stride=stride, padding=padding
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x):
         x = self.proj(x)
         # B C H W -> B H W C
         x = x.permute(0, 2, 3, 1)

@@ -11,7 +11,7 @@ import math
 from typing import Tuple, Type
 
 from .common import MLPBlock
-
+import pdb
 
 class TwoWayTransformer(nn.Module):
     def __init__(
@@ -36,6 +36,11 @@ class TwoWayTransformer(nn.Module):
           activation (nn.Module): the activation to use in the MLP block
         """
         super().__init__()
+        # depth = 2
+        # embedding_dim = 256
+        # num_heads = 8
+        # mlp_dim = 2048
+
         self.depth = depth
         self.embedding_dim = embedding_dim
         self.num_heads = num_heads
@@ -148,8 +153,7 @@ class TwoWayAttentionBlock(nn.Module):
 
         self.skip_first_layer_pe = skip_first_layer_pe
 
-    def forward(
-        self, queries: Tensor, keys: Tensor, query_pe: Tensor, key_pe: Tensor
+    def forward(self, queries: Tensor, keys: Tensor, query_pe: Tensor, key_pe: Tensor
     ) -> Tuple[Tensor, Tensor]:
         # Self attention block
         if self.skip_first_layer_pe:
