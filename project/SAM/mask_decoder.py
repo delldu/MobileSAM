@@ -7,19 +7,20 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
+from SAM.common import LayerNorm2d
+from SAM.transformer import TwoWayTransformer
+
 from typing import List, Tuple, Type
 
-from .common import LayerNorm2d
 import pdb
 
 class MaskDecoder(nn.Module):
     def __init__(self,
-        transformer_dim: int,
-        transformer: nn.Module,
-        num_multimask_outputs: int = 3,
-        activation: Type[nn.Module] = nn.GELU,
-        iou_head_depth: int = 3,
-        iou_head_hidden_dim: int = 256,
+        transformer_dim=256,
+        prompt_embed_dim=256,
+        num_multimask_outputs=3,
+        iou_head_depth=3,
+        iou_head_hidden_dim=256,
     ):
         super().__init__()
         # transformer_dim = 256
@@ -28,7 +29,7 @@ class MaskDecoder(nn.Module):
         # iou_head_hidden_dim = 256
 
         self.transformer_dim = transformer_dim
-        self.transformer = transformer
+        self.transformer = TwoWayTransformer(depth=2, embedding_dim=prompt_embed_dim, mlp_dim=2048, num_heads=8)
         self.num_multimask_outputs = num_multimask_outputs
         self.iou_token = nn.Embedding(1, transformer_dim)
         self.num_mask_tokens = num_multimask_outputs + 1
@@ -37,9 +38,9 @@ class MaskDecoder(nn.Module):
         self.output_upscaling = nn.Sequential(
             nn.ConvTranspose2d(transformer_dim, transformer_dim // 4, kernel_size=2, stride=2),
             LayerNorm2d(transformer_dim // 4),
-            activation(),
+            nn.GELU(),
             nn.ConvTranspose2d(transformer_dim // 4, transformer_dim // 8, kernel_size=2, stride=2),
-            activation(),
+            nn.GELU(),
         )
         self.output_hypernetworks_mlps = nn.ModuleList(
             [
@@ -102,6 +103,7 @@ class MaskDecoder(nn.Module):
         # pos_src.size() -- [64, 256, 64, 64]
         # tokens.size() -- [64, 7, 256]
 
+
         # Run the transformer
         hs, src = self.transformer(src, pos_src, tokens)
         iou_token_out = hs[:, 0, :]
@@ -141,3 +143,10 @@ class MLP(nn.Module):
         for i, layer in enumerate(self.layers):
             x = F.relu(layer(x)) if i < self.num_layers - 1 else layer(x)
         return x
+
+
+if __name__ == "__main__":
+    model = MaskDecoder()
+    model = torch.jit.script(model)
+    print(model)
+    # ==> OK

@@ -60,7 +60,6 @@ if __name__ == "__main__":
         print("image:   ",i)
         image = cv2.imread('../demo/input_imgs/example'+str(i)+'.png')
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        # predictor.set_image(image)
 
         masks = mask_generator.generate(image)
 

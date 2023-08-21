@@ -48,6 +48,7 @@ def save_segment_result(masks, input_tensor, output_file):
 
 if __name__ == "__main__":
     input_files = "images/*.*"    
+    input_files = "images/example5.png"
     output_dir = "output"
 
     # Create directory to store result
@@ -89,7 +90,6 @@ if __name__ == "__main__":
         # image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         image = input_tensor.permute(0, 2, 3, 1).squeeze(0).numpy() * 255.0
         masks = mask_generator.generate(image.astype(np.uint8))
-
 
         output_filename = f"{output_dir}/{os.path.basename(filename)}"
         save_segment_result(masks, input_tensor, output_filename)

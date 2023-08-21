@@ -7,18 +7,18 @@
 import numpy as np
 import torch
 from torch import nn
-from .common import LayerNorm2d
-from typing import Optional, Tuple, Type
+from SAM.common import LayerNorm2d
+
+from typing import Optional, Tuple
 
 import pdb
 
 class PromptEncoder(nn.Module):
     def __init__(self,
-        embed_dim: int = 256,
-        image_embedding_size: Tuple[int, int] = (64, 64),
-        input_image_size: Tuple[int, int] = (1024, 1024),
-        mask_in_chans: int = 16,
-        activation: Type[nn.Module] = nn.GELU,
+        embed_dim=256,
+        image_embedding_size=(64, 64),
+        input_image_size=(1024, 1024),
+        mask_in_chans=16,
     ):
         super().__init__()
         # embed_dim = 256
@@ -40,10 +40,10 @@ class PromptEncoder(nn.Module):
         self.mask_downscaling = nn.Sequential(
             nn.Conv2d(1, mask_in_chans // 4, kernel_size=2, stride=2),
             LayerNorm2d(mask_in_chans // 4),
-            activation(),
+            nn.GELU(),
             nn.Conv2d(mask_in_chans // 4, mask_in_chans, kernel_size=2, stride=2),
             LayerNorm2d(mask_in_chans),
-            activation(),
+            nn.GELU(),
             nn.Conv2d(mask_in_chans, embed_dim, kernel_size=1),
         )
         self.no_mask_embed = nn.Embedding(1, embed_dim)
@@ -79,7 +79,7 @@ class PromptEncoder(nn.Module):
 
     def _embed_boxes(self, boxes):
         """Embeds box prompts."""
-        pdb.set_trace()
+        # pdb.set_trace()
 
         boxes = boxes + 0.5  # Shift to center of pixel
         coords = boxes.reshape(-1, 2, 2)
@@ -90,7 +90,7 @@ class PromptEncoder(nn.Module):
 
     def _embed_masks(self, masks):
         """Embeds mask inputs."""
-        pdb.set_trace()
+        # pdb.set_trace()
 
         mask_embedding = self.mask_downscaling(masks)
         return mask_embedding
@@ -190,3 +190,9 @@ class PositionEmbeddingRandom(nn.Module):
         coords[:, :, 0] = coords[:, :, 0] / image_size[1]
         coords[:, :, 1] = coords[:, :, 1] / image_size[0]
         return self.pe_encoding(coords.to(torch.float))  # B x N x C
+
+if __name__ == "__main__":
+    model = PromptEncoder()
+    model = torch.jit.script(model)
+    print(model)
+    # ==> OK

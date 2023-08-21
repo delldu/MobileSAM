@@ -7,7 +7,7 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-from .image_encoder import ImageEncoderViT
+# from .image_encoder import ImageEncoderViT
 from .mask_decoder import MaskDecoder
 from .prompt_encoder import PromptEncoder
 
@@ -19,25 +19,15 @@ class Sam(nn.Module):
     mask_threshold: float = 0.0
     image_format: str = "RGB"
 
-    def __init__(
-        self,
-        image_encoder: ImageEncoderViT,
+    def __init__(self,
+        image_encoder, #: ImageEncoderViT,
         prompt_encoder: PromptEncoder,
         mask_decoder: MaskDecoder,
         pixel_mean: List[float] = [123.675, 116.28, 103.53],
         pixel_std: List[float] = [58.395, 57.12, 57.375],
-    ) -> None:
+    ):
         """
         SAM predicts object masks from an image and input prompts.
-
-        Arguments:
-          image_encoder (ImageEncoderViT): The backbone used to encode the
-            image into image embeddings that allow for efficient mask prediction.
-          prompt_encoder (PromptEncoder): Encodes various types of input prompts.
-          mask_decoder (MaskDecoder): Predicts masks from the image embeddings
-            and encoded prompts.
-          pixel_mean (list(float)): Mean values for normalizing pixels in the input image.
-          pixel_std (list(float)): Std values for normalizing pixels in the input image.
         """
         super().__init__()
 
@@ -54,6 +44,11 @@ class Sam(nn.Module):
     @torch.no_grad()
     def forward(self, batched_input: List[Dict[str, Any]]) -> List[Dict[str, torch.Tensor]]:
         pdb.set_trace()
+        # batched_input['image']
+        # batched_input['point_coords']
+        # batched_input['point_labels']
+        # batched_input['boxes']
+        # batched_input['masks']
 
         input_images = torch.stack([self.preprocess(x["image"]) for x in batched_input], dim=0)
         image_embeddings = self.image_encoder(input_images)
@@ -90,22 +85,7 @@ class Sam(nn.Module):
             )
         return outputs
 
-    def postprocess_masks(self,
-        masks: torch.Tensor,
-        input_size: Tuple[int, ...],
-        original_size: Tuple[int, ...],
-    ) -> torch.Tensor:
-        """
-        Remove padding and upscale masks to the original image size.
-
-        Arguments:
-          masks (torch.Tensor): Batched masks from the mask_decoder, in BxCxHxW format.
-          input_size (tuple(int, int)): The size of the image input to the model, in (H, W) format. Used to remove padding.
-          original_size (tuple(int, int)): The original size of the image before resizing for input to the model, in (H, W) format.
-
-        Returns:
-          (torch.Tensor): Batched masks in BxCxHxW format, where (H, W) is given by original_size.
-        """
+    def postprocess_masks(self, masks, input_size: Tuple[int, ...], original_size: Tuple[int, ...]):
         # masks.size() -- [64, 3, 256, 256]
         # input_size -- (1024, 1024)
         # original_size -- (1024, 1024)

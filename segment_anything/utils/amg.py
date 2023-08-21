@@ -90,7 +90,7 @@ class MaskData:
         return "\n".join(ret)
 
 
-def is_box_near_crop_edge(boxes: torch.Tensor, crop_box: List[int], orig_box: List[int], atol: float = 20.0) -> torch.Tensor:
+def is_box_near_crop_edge(boxes, crop_box: List[int], orig_box: List[int], atol: float = 20.0):
     """Filter masks at the edge of a crop, but not at the edge of the original image."""
     crop_box_torch = torch.as_tensor(crop_box, dtype=torch.float, device=boxes.device)
     orig_box_torch = torch.as_tensor(orig_box, dtype=torch.float, device=boxes.device)
@@ -101,7 +101,7 @@ def is_box_near_crop_edge(boxes: torch.Tensor, crop_box: List[int], orig_box: Li
     return torch.any(near_crop_edge, dim=1)
 
 
-def box_xyxy_to_xywh(box_xyxy: torch.Tensor) -> torch.Tensor:
+def box_xyxy_to_xywh(box_xyxy):
     box_xywh = deepcopy(box_xyxy)
     box_xywh[2] = box_xywh[2] - box_xywh[0]
     box_xywh[3] = box_xywh[3] - box_xywh[1]
@@ -115,7 +115,7 @@ def batch_iterator(batch_size: int, *args) -> Generator[List[Any], None, None]:
         yield [arg[b * batch_size : (b + 1) * batch_size] for arg in args]
 
 
-def mask_to_rle_pytorch(tensor: torch.Tensor) -> List[Dict[str, Any]]:
+def mask_to_rle_pytorch(tensor) -> List[Dict[str, Any]]:
     """
     Encodes masks to an uncompressed RLE, in the format expected by
     pycoco tools.
@@ -164,9 +164,7 @@ def area_from_rle(rle: Dict[str, Any]) -> int:
     return sum(rle["counts"][1::2])
 
 
-def calculate_stability_score(
-    masks: torch.Tensor, mask_threshold: float, threshold_offset: float
-) -> torch.Tensor:
+def calculate_stability_score(masks, mask_threshold: float, threshold_offset: float = 1.0):
     """
     Computes the stability score for a batch of masks. The stability
     score is the IoU between the binary masks obtained by thresholding
@@ -195,6 +193,14 @@ def build_point_grid(n_per_side: int) -> np.ndarray:
     points_x = np.tile(points_one_side[None, :], (n_per_side, 1))
     points_y = np.tile(points_one_side[:, None], (1, n_per_side))
     points = np.stack([points_x, points_y], axis=-1).reshape(-1, 2)
+
+    s = 0.5/n_per_side # step
+    c = torch.linspace(s, 1.0 - s, n_per_side)
+    x, y = torch.meshgrid(c, c, indexing="xy")
+    xy = torch.stack((x, y), dim=2).reshape(-1, 2)
+
+    # pdb.set_trace()
+
     return points
 
 
@@ -216,7 +222,7 @@ def build_all_layer_point_grids(n_per_side: int, n_layers: int, scale_per_layer:
 
     return points_by_layer
 
-
+# overlap_boxes -- grid_boxes ???
 def generate_crop_boxes(im_size: Tuple[int, ...], n_layers: int, overlap_ratio: float) -> Tuple[List[List[int]], List[int]]:
     """
     Generates a list of crop boxes of different sizes. Each layer
@@ -224,7 +230,7 @@ def generate_crop_boxes(im_size: Tuple[int, ...], n_layers: int, overlap_ratio: 
     """
     crop_boxes, layer_idxs = [], []
     im_h, im_w = im_size
-    short_side = min(im_h, im_w)
+    short_side = min(im_h, im_w) # (1024, 683) ==> 683
 
     # Original image
     crop_boxes.append([0, 0, im_w, im_h])
@@ -233,15 +239,17 @@ def generate_crop_boxes(im_size: Tuple[int, ...], n_layers: int, overlap_ratio: 
     def crop_len(orig_len, n_crops, overlap):
         return int(math.ceil((overlap * (n_crops - 1) + orig_len) / n_crops))
 
-    for i_layer in range(n_layers):
-        n_crops_per_side = 2 ** (i_layer + 1)
-        overlap = int(overlap_ratio * short_side * (2 / n_crops_per_side))
+    for i_layer in range(n_layers): # n_layers -- 1
+        n_crops_per_side = 2 ** (i_layer + 1) # ==> 2
+        overlap = int(overlap_ratio * short_side * (2 / n_crops_per_side)) # ==> 233
 
         crop_w = crop_len(im_w, n_crops_per_side, overlap)
         crop_h = crop_len(im_h, n_crops_per_side, overlap)
+        # crop_w, crop_h -- (629, 458)
 
         crop_box_x0 = [int((crop_w - overlap) * i) for i in range(n_crops_per_side)]
         crop_box_y0 = [int((crop_h - overlap) * i) for i in range(n_crops_per_side)]
+        # crop_box_x0, crop_box_y0 -- ([0, 396], [0, 225])
 
         # Crops in XYWH format
         for x0, y0 in product(crop_box_x0, crop_box_y0):
@@ -249,10 +257,13 @@ def generate_crop_boxes(im_size: Tuple[int, ...], n_layers: int, overlap_ratio: 
             crop_boxes.append(box)
             layer_idxs.append(i_layer + 1)
 
+    # list [crop_boxes] len: 5 , [[0, 0, 1024, 683], [0, 0, 629, 458], [0, 225, 629, 683], [396, 0, 1024, 458], [396, 225, 1024, 683]]
+    # layer_idxs -- [0, 1, 1, 1, 1]
+
     return crop_boxes, layer_idxs
 
 
-def uncrop_boxes_xyxy(boxes: torch.Tensor, crop_box: List[int]) -> torch.Tensor:
+def uncrop_boxes_xyxy(boxes, crop_box: List[int]):
     x0, y0, _, _ = crop_box
     offset = torch.tensor([[x0, y0, x0, y0]], device=boxes.device)
     # Check if boxes has a channel dimension
@@ -261,7 +272,7 @@ def uncrop_boxes_xyxy(boxes: torch.Tensor, crop_box: List[int]) -> torch.Tensor:
     return boxes + offset
 
 
-def uncrop_points(points: torch.Tensor, crop_box: List[int]) -> torch.Tensor:
+def uncrop_points(points, crop_box: List[int]):
     x0, y0, _, _ = crop_box
     offset = torch.tensor([[x0, y0]], device=points.device)
     # Check if points has a channel dimension
@@ -270,9 +281,7 @@ def uncrop_points(points: torch.Tensor, crop_box: List[int]) -> torch.Tensor:
     return points + offset
 
 
-def uncrop_masks(
-    masks: torch.Tensor, crop_box: List[int], orig_h: int, orig_w: int
-) -> torch.Tensor:
+def uncrop_masks(masks, crop_box: List[int], orig_h: int, orig_w: int):
     x0, y0, x1, y1 = crop_box
     if x0 == 0 and y0 == 0 and x1 == orig_w and y1 == orig_h:
         return masks
@@ -318,7 +327,7 @@ def coco_encode_rle(uncompressed_rle: Dict[str, Any]) -> Dict[str, Any]:
     return rle
 
 
-def batched_mask_to_box(masks: torch.Tensor) -> torch.Tensor:
+def batched_mask_to_box(masks):
     """
     Calculates boxes in XYXY format around masks. Return [0,0,0,0] for
     an empty mask. For input shape C1xC2x...xHxW, the output shape is C1xC2x...x4.

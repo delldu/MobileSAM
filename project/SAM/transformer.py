@@ -1,36 +1,29 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-
 import torch
 from torch import Tensor, nn
 
 import math
-from typing import Tuple, Type
+from typing import Tuple
 
 import pdb
 
 
 class MLPBlock(nn.Module):
-    def __init__(self, embedding_dim, mlp_dim, act = nn.GELU):
+    def __init__(self, embedding_dim, mlp_dim):
         super().__init__()
         self.lin1 = nn.Linear(embedding_dim, mlp_dim)
         self.lin2 = nn.Linear(mlp_dim, embedding_dim)
-        self.act = act()
+        self.act = nn.GELU()
 
     def forward(self, x):
         return self.lin2(self.act(self.lin1(x)))
 
 class TwoWayTransformer(nn.Module):
     def __init__(self,
-        depth: int,
-        embedding_dim: int,
-        num_heads: int,
-        mlp_dim: int,
-        activation: Type[nn.Module] = nn.ReLU,
-        attention_downsample_rate: int = 2,
+        depth=2,
+        embedding_dim=256,
+        num_heads=8,
+        mlp_dim=2048,
+        attention_downsample_rate=2,
     ):
         super().__init__()
         # depth = 2
@@ -50,7 +43,6 @@ class TwoWayTransformer(nn.Module):
                     embedding_dim=embedding_dim,
                     num_heads=num_heads,
                     mlp_dim=mlp_dim,
-                    activation=activation,
                     attention_downsample_rate=attention_downsample_rate,
                     skip_first_layer_pe=(i == 0),
                 )
@@ -87,18 +79,16 @@ class TwoWayTransformer(nn.Module):
 
 class TwoWayAttentionBlock(nn.Module):
     def __init__(self,
-        embedding_dim: int,
-        num_heads: int,
-        mlp_dim: int = 2048,
-        activation: Type[nn.Module] = nn.ReLU,
-        attention_downsample_rate: int = 2,
-        skip_first_layer_pe: bool = False,
+        embedding_dim=256,
+        num_heads=8,
+        mlp_dim=2048,
+        attention_downsample_rate=2,
+        skip_first_layer_pe=False,
     ):
         super().__init__()
         # embedding_dim = 256
         # num_heads = 8
         # mlp_dim = 2048
-        # activation = <class 'torch.nn.modules.activation.ReLU'>
         # attention_downsample_rate = 2
         # skip_first_layer_pe = True if i == 0 else False
 
@@ -108,7 +98,7 @@ class TwoWayAttentionBlock(nn.Module):
         self.cross_attn_token_to_image = Attention(embedding_dim, num_heads, downsample_rate=attention_downsample_rate)
         self.norm2 = nn.LayerNorm(embedding_dim)
 
-        self.mlp = MLPBlock(embedding_dim, mlp_dim, activation)
+        self.mlp = MLPBlock(embedding_dim, mlp_dim)
         self.norm3 = nn.LayerNorm(embedding_dim)
 
         self.norm4 = nn.LayerNorm(embedding_dim)
@@ -204,3 +194,10 @@ class Attention(nn.Module):
         out = self.out_proj(out)
 
         return out
+
+if __name__ == "__main__":
+    model = TwoWayTransformer()
+
+    model = torch.jit.script(model)
+    print(model)
+    # ==> OK

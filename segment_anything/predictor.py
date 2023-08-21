@@ -75,52 +75,16 @@ class SamPredictor:
 
         self.original_size = original_image_size
         self.input_size = tuple(transformed_image.shape[-2:])
-        #import pdb; pdb.set_trace()
-        input_image = self.model.preprocess(transformed_image)
-        # tensor [input_image] size: [1, 3, 1024, 1024] , min: tensor(-2.0837, device='cuda:0') , max: tensor(2.6400, device='cuda:0')
-
-        # ==> input_image normalize -- value -2.0, 2.0 
 
         # xxxx8888 !!! Step 1
+        input_image = self.model.preprocess(transformed_image)
+        # tensor [input_image] size: [1, 3, 1024, 1024] , min: tensor(-2.0837, device='cuda:0') , max: tensor(2.6400, device='cuda:0')
         self.features = self.model.image_encoder(input_image)
         # tensor [self.features] size: [1, 256, 64, 64] , min: tensor(-0.6405, device='cuda:0') , max: tensor(0.5725, device='cuda:0')
+        # self.features -- image_embeddings in Sam.forward
 
         self.is_image_set = True
 
-
-    def predict(self,
-        point_coords: Optional[np.ndarray] = None,
-        point_labels: Optional[np.ndarray] = None,
-        box: Optional[np.ndarray] = None,
-        mask_input: Optional[np.ndarray] = None,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        if not self.is_image_set:
-            raise RuntimeError("An image must be set with .set_image(...) before mask prediction.")
-
-        # Transform input prompts
-        coords_torch, labels_torch, box_torch, mask_input_torch = None, None, None, None
-        pdb.set_trace()
-
-        if point_coords is not None:
-            assert (point_labels is not None), "point_labels must be supplied if point_coords is supplied."
-            point_coords = self.transform.apply_coords(point_coords, self.original_size)
-            coords_torch = torch.as_tensor(point_coords, dtype=torch.float, device=self.device)
-            labels_torch = torch.as_tensor(point_labels, dtype=torch.int, device=self.device)
-            coords_torch, labels_torch = coords_torch[None, :, :], labels_torch[None, :]
-        if box is not None:
-            box = self.transform.apply_boxes(box, self.original_size)
-            box_torch = torch.as_tensor(box, dtype=torch.float, device=self.device)
-            box_torch = box_torch[None, :]
-        if mask_input is not None:
-            mask_input_torch = torch.as_tensor(mask_input, dtype=torch.float, device=self.device)
-            mask_input_torch = mask_input_torch[None, :, :, :]
-
-        masks, iou_predictions, low_res_masks = self.predict_torch(coords_torch, labels_torch, box_torch, mask_input_torch)
-
-        masks_np = masks[0].detach().cpu().numpy()
-        iou_predictions_np = iou_predictions[0].detach().cpu().numpy()
-        low_res_masks_np = low_res_masks[0].detach().cpu().numpy()
-        return masks_np, iou_predictions_np, low_res_masks_np
 
     @torch.no_grad()
     def predict_torch(self,
@@ -148,11 +112,11 @@ class SamPredictor:
         # [boxes] value: None
         # [mask_input] value: None
 
+        # Sam.forward: prompt_encoder, mask_decoder
         sparse_embeddings, dense_embeddings = self.model.prompt_encoder(points=points, boxes=boxes, masks=mask_input)
         # tensor [sparse_embeddings] size: [64, 2, 256] , min: tensor(-1.3537, device='cuda:0') , max: tensor(1.3647, device='cuda:0')
         # tensor [dense_embeddings] size: [64, 256, 64, 64] , min: tensor(-0.2179, device='cuda:0') , max: tensor(0.1378, device='cuda:0')
 
-        # Predict masks
         # xxxx8888 !!! Step 3
         low_res_masks, iou_predictions = self.model.mask_decoder(
             image_embeddings=self.features,
@@ -165,6 +129,7 @@ class SamPredictor:
 
         # Upscale the masks to the original image resolution
         masks = self.model.postprocess_masks(low_res_masks, self.input_size, self.original_size)
+        # tensor [masks] size: [64, 3, 683, 1024] , min: tensor(-41.8604, device='cuda:0') , max: tensor(19.8630, device='cuda:0')
 
         return masks, iou_predictions, low_res_masks
 

@@ -11,9 +11,9 @@ import itertools
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.utils.checkpoint as checkpoint
+# import torch.utils.checkpoint as checkpoint
 from timm.models.layers import DropPath as TimmDropPath
-from timm.models.registry import register_model
+# from timm.models.registry import register_model
 from typing import Tuple
 
 import pdb
@@ -548,6 +548,7 @@ class TinyViT(nn.Module):
         x = self.patch_embed(x)
 
         x = self.layers[0](x)
+
         # start_i = 1
         # for i in range(start_i, len(self.layers)):
         #     layer = self.layers[i]
@@ -558,8 +559,8 @@ class TinyViT(nn.Module):
 
         B, _, C = x.size()
         x = x.view(B, 64, 64, C)
-        x=x.permute(0, 3, 1, 2)
-        x=self.neck(x)
+        x = x.permute(0, 3, 1, 2)
+        x = self.neck(x)
         return x
 
     def forward(self, x):
@@ -569,51 +570,66 @@ class TinyViT(nn.Module):
         return x
 
 
-_checkpoint_url_format = \
-    'https://github.com/wkcn/TinyViT-model-zoo/releases/download/checkpoints/{}.pth'
-_provided_checkpoints = {
-    'tiny_vit_5m_224': 'tiny_vit_5m_22kto1k_distill', # True ?
-    # 'tiny_vit_11m_224': 'tiny_vit_11m_22kto1k_distill',
-    # 'tiny_vit_21m_224': 'tiny_vit_21m_22kto1k_distill',
-    # 'tiny_vit_21m_384': 'tiny_vit_21m_22kto1k_384_distill',
-    # 'tiny_vit_21m_512': 'tiny_vit_21m_22kto1k_512_distill',
-}
+# _checkpoint_url_format = \
+#     'https://github.com/wkcn/TinyViT-model-zoo/releases/download/checkpoints/{}.pth'
+# _provided_checkpoints = {
+#     'tiny_vit_5m_224': 'tiny_vit_5m_22kto1k_distill', # True ?
+#     # 'tiny_vit_11m_224': 'tiny_vit_11m_22kto1k_distill',
+#     # 'tiny_vit_21m_224': 'tiny_vit_21m_22kto1k_distill',
+#     # 'tiny_vit_21m_384': 'tiny_vit_21m_22kto1k_384_distill',
+#     # 'tiny_vit_21m_512': 'tiny_vit_21m_22kto1k_512_distill',
+# }
 
 
-def register_tiny_vit_model(fn):
-    '''Register a TinyViT model
-    '''
-    #  pp fn -- <function tiny_vit_5m_224>
-    def fn_wrapper(pretrained=False, **kwargs):
-        model = fn() # model -- TinyViT()
-        if pretrained:
-            model_name = fn.__name__
-            assert model_name in _provided_checkpoints, \
-                f'Sorry that the checkpoint `{model_name}` is not provided yet.'
-            url = _checkpoint_url_format.format(
-                _provided_checkpoints[model_name])
-            checkpoint = torch.hub.load_state_dict_from_url(
-                url=url,
-                map_location='cpu', check_hash=False,
-            )
-            model.load_state_dict(checkpoint['model'])
+# def register_tiny_vit_model(fn):
+#     '''Register a TinyViT model
+#     '''
+#     #  pp fn -- <function tiny_vit_5m_224>
+#     def fn_wrapper(pretrained=False, **kwargs):
+#         model = fn() # model -- TinyViT()
+#         if pretrained:
+#             model_name = fn.__name__
+#             assert model_name in _provided_checkpoints, \
+#                 f'Sorry that the checkpoint `{model_name}` is not provided yet.'
+#             url = _checkpoint_url_format.format(
+#                 _provided_checkpoints[model_name])
+#             checkpoint = torch.hub.load_state_dict_from_url(
+#                 url=url,
+#                 map_location='cpu', check_hash=False,
+#             )
+#             model.load_state_dict(checkpoint['model'])
 
-        return model
+#         return model
 
-    # rename the name of fn_wrapper
-    fn_wrapper.__name__ = fn.__name__
-    return register_model(fn_wrapper)
+#     # rename the name of fn_wrapper
+#     fn_wrapper.__name__ = fn.__name__
+#     return register_model(fn_wrapper)
 
 
-@register_tiny_vit_model
-def tiny_vit_5m_224(pretrained=False, num_classes=1000, drop_path_rate=0.0):
+# @register_tiny_vit_model
+# def tiny_vit_5m_224(pretrained=False, num_classes=1000, drop_path_rate=0.0):
+#     pdb.set_trace()
+
+#     return TinyViT(
+#         num_classes=num_classes,
+#         embed_dims=[64, 128, 160, 320],
+#         depths=[2, 2, 6, 2],
+#         num_heads=[2, 4, 5, 10],
+#         window_sizes=[7, 7, 14, 7],
+#         drop_path_rate=drop_path_rate,
+#     )
+
+if __name__ == "__main__":
+    model = TinyViT()
+
+    model = torch.jit.script(model)
+    print(model)
+
+    model = model.eval()
+
+    with torch.no_grad():
+        y = model(torch.randn(1, 3, 1024, 1024))
+
     pdb.set_trace()
 
-    return TinyViT(
-        num_classes=num_classes,
-        embed_dims=[64, 128, 160, 320],
-        depths=[2, 2, 6, 2],
-        num_heads=[2, 4, 5, 10],
-        window_sizes=[7, 7, 14, 7],
-        drop_path_rate=drop_path_rate,
-    )
+    # ==> OK

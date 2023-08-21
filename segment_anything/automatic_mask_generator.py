@@ -49,7 +49,7 @@ class SamAutomaticMaskGenerator:
         crop_overlap_ratio: float = 512 / 1500,
         crop_n_points_downscale_factor: int = 1, # 2
         min_mask_region_area: int = 0, # 100, Requires open-cv to run post-processing
-    ) -> None:
+    ):
         # points_per_side = 32
         # points_per_batch = 64
         # pred_iou_thresh = 0.86
@@ -62,6 +62,7 @@ class SamAutomaticMaskGenerator:
         # crop_n_points_downscale_factor = 2
         # min_mask_region_area = 100
 
+        # grid_points ???
         self.point_grids = build_all_layer_point_grids(
             points_per_side, # 32
             crop_n_layers, # 1
@@ -198,11 +199,17 @@ class SamAutomaticMaskGenerator:
         x0, y0, x1, y1 = crop_box
         cropped_im = image[y0:y1, x0:x1, :]
         cropped_im_size = cropped_im.shape[:2]
-        self.predictor.set_image(cropped_im)
+
+        self.predictor.set_image(cropped_im) # !!!!!!!!!
+        # cropped_im.shape -- (683, 1024, 3)
+        # crop_box -- [0, 0, 1024, 683]
+        # cropped_im.shape -- (458, 629, 3)
 
         # Get points for this crop
         points_scale = np.array(cropped_im_size)[None, ::-1]
-        points_for_image = self.point_grids[crop_layer_idx] * points_scale
+        # np.array(cropped_im_size) -- array([ 683, 1024]) ==> points_scale -- array([[1024,  683]])
+        points_for_image = self.point_grids[crop_layer_idx] * points_scale # format (x, y) 
+        # xy * torch.tensor([W, H])
 
         # Generate masks for this crop in batches
         data = MaskData()
@@ -212,14 +219,16 @@ class SamAutomaticMaskGenerator:
         #
         # (Pdb) self.points_per_batch -- 64
         # (Pdb) points_for_image
-        # array([[  16.,   16.],
-        #        [  48.,   16.],
-        #        [  80.,   16.],
+        # array([[  16.      ,   10.671875],
+        #        [  48.      ,   10.671875],
+        #        [  80.      ,   10.671875],
         #        ...,
-        #        [ 944., 1008.],
-        #        [ 976., 1008.],
-        #        [1008., 1008.]])
+        #        [ 944.      ,  672.328125],
+        #        [ 976.      ,  672.328125],
+        #        [1008.      ,  672.328125]])
         # (Pdb) points_for_image.shape -- (1024, 2)
+
+
         for (points,) in batch_iterator(self.points_per_batch, points_for_image):
             batch_data = self._process_batch(points, cropped_im_size, crop_box, orig_size)
             data.cat(batch_data)
@@ -254,10 +263,11 @@ class SamAutomaticMaskGenerator:
         crop_box: List[int],
         orig_size: Tuple[int, ...],
     ) -> MaskData:
-        # array [_process_batch.points] shape: (64, 2) , min: 16.0 , max: 1008.0
-        # tuple [_process_batch.im_size] len: 2 , (1024, 1024)
-        # list [_process_batch.crop_box] len: 4 , [0, 0, 1024, 1024]
-        # tuple [_process_batch.orig_size] len: 2 , (1024, 1024)
+        # points.shape -- (64, 2)
+        # im_size = (683, 1024)
+        # crop_box = [0, 0, 1024, 683]
+        # orig_size = (683, 1024)
+
 
         orig_h, orig_w = orig_size
 
@@ -281,9 +291,9 @@ class SamAutomaticMaskGenerator:
 
         # Serialize predictions and store in MaskData
         data = MaskData(
-            masks=masks.flatten(0, 1),
-            iou_preds=iou_preds.flatten(0, 1),
-            points=torch.as_tensor(points.repeat(masks.shape[1], axis=0)),
+            masks=masks.flatten(0, 1), # [64, 3, 683, 1024] ==> [192, 683, 1024]
+            iou_preds=iou_preds.flatten(0, 1), # [64, 3] ==> [192]
+            points=torch.as_tensor(points.repeat(masks.shape[1], axis=0)), # [64, 2] ==> [192, 2]
         )
         del masks
         # data -- <segment_anything.utils.amg.MaskData object>
@@ -305,6 +315,7 @@ class SamAutomaticMaskGenerator:
         # Threshold masks and calculate boxes
         data["masks"] = data["masks"] > self.predictor.model.mask_threshold
         # self.predictor.model.mask_threshold -- 0.0
+        # data["masks"].size() -- [131, 683, 1024]
 
         data["boxes"] = batched_mask_to_box(data["masks"]) # size() -- [14, 4]
 
